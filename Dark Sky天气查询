@@ -1,0 +1,152 @@
+#抓取维基人口大于50万的城市，
+#通过api  获取这些城市的指定日期的Dark Sky 天气数据
+# 通过shiny展现
+
+
+library(shiny)
+library(ECharts2Shiny)
+library(rvest)
+library(jsonlite)
+library(httr)
+library(stringr)
+library(dplyr)
+htm_doc<-read_html("https://en.wikipedia.org/wiki/List_of_United_States_cities_by_population",encoding='unicode')
+city_data<- htm_doc %>% html_node("table.wikitable ") %>% html_table(fill = TRUE,header=TRUE)
+
+# more than 500,000 residents during the 2010 Census
+city_data <- city_data[city_data[,5]>=500000,]
+
+
+city_data$Location <- str_replace_all(city_data$Location,'[\uFEFF]','')
+city_data$Change <- str_extract_all(city_data$Change,'\\d+[%]')
+city_data[,7] <- str_replace_all(city_data[,7],'[\u2660]|[\u00A0]','')
+city_data[,8] <- str_replace_all(city_data[,8],'[\u2660]|[\u00A0]|[\u2212]','')
+
+# clean City names
+city_data$City <- str_replace_all(city_data[,2],pattern = '\\[[0-9]+\\]',replacement = '')
+
+# clean state names
+names(city_data)[3] <- 'State'
+city_data$State <- str_replace_all(city_data[,3],pattern = '\\[[0-9]+\\]',replacement = '')
+
+# 把location中的经度 和纬度，以及数值经度 、纬度取出成为新的列方便后面函数调用
+for(i in 1:nrow(city_data)){
+
+  city_data$latitude[i] <- as.numeric(str_split(city_data$Location[i],'[/;()]')[[1]][3])
+  city_data$longitude[i] <- as.numeric(str_trim(str_split(city_data$Location[i],'[/;()]')[[1]][4]))
+  
+}
+
+city_data <- city_data[,-9] # 删除合并列
+
+ #取darksky天气hourly函数 
+get_darksky = function(key, lat, long, date){
+  dfm <-NULL  
+  #指定日期 的 url 示例链接https://api.darksky.net/forecast/43706aeaef98b1c35ac9b4a69275eddd/37.7751,-122.4193,1481731200?exclude=currently,flags
+  
+   url<- ifelse (is.null(date),paste0("https://api.darksky.net/forecast/",key,"/",lat,",",long),paste0("https://api.darksky.net/forecast/",key,"/",lat,",",long,",",date))
+  dt<- GET(url)
+  json_raw <- fromJSON(content(dt, type = "text"),simplifyDataFrame = TRUE,flatten = TRUE)
+  dfm<- json_raw$hourly
+  dfm<- dfm$data
+  dfm$time<- substring(as.POSIXct(dfm$time, origin="1970-01-01 00:00:00"),1,13)
+  return(dfm)
+}
+ui=shinyUI(fluidPage(
+  # We HAVE TO to load the ECharts javascript library in advance
+  loadEChartsLibrary(),
+  # 分成三行显示，第一行显示标题，第二行显示所选城市经度和纬度，第三行显示可视化图形
+  #这是第一行
+  fluidRow(
+    
+    column(12,
+           h3("DARK SKY WEATHER FORECAST", align = "center"),
+           h5("提供了八项天气指标,可供选择", align = "center"),br()
+          
+        
+    )
+  ),
+ # 这是第二行
+  fluidRow(
+    column(4,""),
+    column(3,verbatimTextOutput("lat_"))
+  ),
+  fluidRow(
+    column(4,  dateInput("date",label = h5("请选择日期:"),width = NULL)),
+    column(4,  selectInput("city",label=h5("请选择城市:"),choices =city_data$City,width = NULL)),
+    column(4,  selectInput("type",label=h5("请选择气象类型(多选):"),
+                           choices = c("apparentTemperature","dewPoint", "precipIntensity","pressure","windSpeed","windBearing","cloudCover","humidity"),width = NULL,multiple = TRUE,selected = c("dewPoint","apparentTemperature")))
+  ),
+ #这是第三行
+  fluidRow(
+    column(12, hr(),
+           tags$div(id="dark", style="width:100%;height:400px;"),
+           deliverChart(div_id = "dark"))
+   
+   
+  )
+)
+)
+
+
+
+
+server=shinyServer(function(input, output) {
+  
+
+  #通过函数获取天气预报数据 此步骤是用于数据交互
+  weather_data <- reactive({
+    key<- "43706aeaef98b1c35ac9b4a69275eddd" # 函数参数 通过dark sky 注册获取
+    lat <-city_data[which(city_data$City==input$city),"latitude"] # 查询经度
+    lg<- city_data[which(city_data$City==input$city),"longitude"] #查询纬度
+    
+    # 1 当页面日期不改动，获取从当下时刻开始的48小时天气数据
+    if(input$date==Sys.Date()) {  date <- NULL
+      dfm<- get_darksky(key=key,lat=lat,long=lg,date=date) } 
+    
+    # 2 当页面日期改动成当天日期以外，获取指定日期前后两天共五天的数据合并
+    #这种情况下每次只能获取24小时数据，因为要执行6次左右才可以取到前后各两天数据
+    else { 
+      dt<- seq(as.Date(input$date)-3,by="day",length.out=7) # 指定日期的前后6天
+      dfm <- NULL
+      for(i in 1:7) {          
+      date<- as.numeric(as.POSIXct(dt[i], format="%Y-%m-%d"))
+      temp_dfm<- get_darksky(key=key,lat=lat,long=lg,date=date)  
+      dfm<- rbind.fill(dfm,temp_dfm)
+     
+           }
+         dfm$dtime <-as.Date(substring(dfm$time,1,10))# 第一条时间删除过分和秒无法比较这里取出日期部分
+         dfm<- filter(dfm,dtime>=dt[2] & dtime<=dt[6])# 筛选前后各两天数据
+         dfm<- dfm[,-17] # 删除新增列
+            }
+   
+    row.names(dfm) <-dfm$time # 这里是作图函数需要
+    
+    dfm <- dfm[,c("temperature",input$type)] # 这个根绝要求默认气温数据,同时避免复选框天气类型为空时报错
+    
+  })
+
+  
+  # 对应页面显示显示纬度/经度 
+  output$lat_ <- renderText({
+    lat <-city_data[which(city_data$City==input$city),"latitude"] # 获取对应亨氏纬度
+    lg<- city_data[which(city_data$City==input$city),"longitude"]#  对应城市经度
+    paste0("Latitude: ",lat,"\nLongitude: ",lg) # 显示经纬度
+  })
+  
+  # 显示echart图标
+  observeEvent(weather_data(), if(length(input$type)!=0){  # 为了完成更改选择后刷新数据
+  renderLineChart(div_id = "dark",
+                  data = weather_data(), # 作图数据
+                  line.width = rep(c(2, 4,4),times=3)[1:length(data)],#设置图中 线宽度，类型，点的大小，类型,但是感觉这种设置后好像恢复到默认了
+                  line.type = rep(c("solid", "dashed", "dotted"),times=3)[1:length(data)],
+                  point.size =rep(c(10,10,10),times=3)[1:length(data)],
+                  point.type = rep(c("emptyCircle", "rect", 'circle'),times=3)[1:length(data)]  )}
+   
+  )
+  
+  
+})
+
+
+shinyApp(ui, server)
