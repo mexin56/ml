@@ -1,1 +1,177 @@
 
+## 遗传算法 
+
+icross <- function(str0,str1){
+  k <- sample(2:(nchar(str0)-1),1)
+  out0 <- paste(substring(str0,1,k-1),substring(str1,k),sep="")
+  out1 <- paste(substring(str1,1,k-1),substring(str0,k),sep="")
+  return(list(out0,out1))
+}
+
+
+interCross <- function(vgene,p)
+{
+  L <-length(vgene)
+  reserve_gene=NULL
+  if(L%%2==1){
+    idx <- sample(1:L,1)
+    p1=p2=NULL
+    if(idx>1 && idx<L)
+    {
+      p1=vgene[1:(idx-1)]
+      p2=vgene[(idx+1):L]
+      
+    } else if (idx==1){
+      p2=vgene[(idx+1):L]
+    } else if (idx==L){p1=vgene[1:(idx-1)] }
+    
+    vgene=c(p1,p2)
+    L <- L-1
+  }
+
+  
+  t0=data.frame(vgene)
+  t0$vgene=as.character(t0$vgene)
+  t0$group=sample(rep(1:(L/2),2),L)
+  vgene=unlist(mapply(function(x)
+    {
+    
+    #随机生成一个概率值，如果小于p，则进行交叉，否则保留原始个体进入下一代
+     rand_p=runif(1,0,1)
+     sub0=t0[t0$group==x,]$vgene
+     # 如果发生交叉的两个个体基因型一样，那么随机生成一个与另外一个再交叉
+     if(sub0[1]==sub0[2]){
+       sub0[1]=paste(sample(c(0,1),11,replace=TRUE),collapse = "")
+     }
+     
+     if(rand_p<p){
+       return(icross(sub0[1],sub0[2]))
+     } else {  return( list(sub0[1],sub0[2]))}
+     
+     
+     
+     
+     
+  },1:(L/2)))
+  
+  return(c(reserve_gene,vgene))}
+
+
+
+
+
+##基因突变
+
+
+
+
+ mutate_ele <- function(dst){
+   
+   k <- sample(1:nchar(dst),1)
+   p1=NULL
+   p2=ifelse(substring(dst,k,k)=="0",1,0)
+   p3=NULL
+   if(k==1){
+     p3=substring(dst,1,k-1)
+   } else { 
+     p1=substring(dst,1,k-1)
+     p3=substring(dst,k+1,nchar(dast))}
+   
+   dst2 <- paste(p1,p2,p3,sep="")
+   return(dst2)
+   
+   
+ }
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ mutate <- function(vgene,p){
+   
+   
+   
+   L= length(vgene)
+   for(i in 1:L)
+   {
+     rand_p=runif(1,0,1)
+     if(rand_p<p){
+       dst <- vgene[i]
+       dst2 <- mutate_ele(dst)
+       print(" 第 ",i,"个个体发生突变",sep="")
+        print(" 原染色体:",dst,sep="")
+        print(" 变异后的染色体 ：",dst2,sep="")
+        vgene <- dst2
+     }
+   }
+   return(vgene)
+ }
+ 
+ 
+ 
+ 
+ 
+ 
+ getX <- function(vgene){
+   vgene <- stroi(vgene,base=2)
+   vgene <- vgene*12.55/(2^11-1)
+return(vgene)
+   
+   
+   
+ }
+ 
+ 
+ getAdjust <- function(vgene)
+ {
+   vgene <- getX(vgene)
+   return(vgene*sin(vgene)+12)
+   
+ }
+ 
+ 
+ 
+ ## 通过轮盘赌来进行选择
+ 
+ cycleSel <- function(vgene){
+   L <- length(vgene)
+   t0=data.frame(vgene)
+   t0$vgene=as.character(t0$vgene)
+   t0$adjust=getAdjust(t0$vgene)
+   t0$prob=t0$adjust/sum(t0$adjust)
+   cu_prob=NULL
+   for(i in 1: L){
+     cu_prob=c(cu_prob,sum(t0$prob[1:i]))
+   }
+   
+   
+   t0$cu_prob=cu_prob
+   #随机产生L个0~1的随机数
+   r0=runif(L,0,1)
+   print(r0)
+   sel0=mapply(function(x){
+     tmp0=which(x>cu_prob)
+     if(length(tmp0)==0) return(1)  else return(max(tmp0)+1)
+   },r0)
+   
+   #将选择列表中，适应度最低的移除
+   sel0 <- sel0[-which(sel0==sel0[which.is.min(t0[sel0,]$adjust)])]
+   
+   
+   
+   
+   #将种群中适应度最高的个体加入选择列表中
+   
+   
+   
+   sel0 <- c(sel0,as.integer(rownames(t0[order(t0$adjust,decreasing=T),][1:(L- length(sel0)),])))
+   
+   excludes <- setdiff(1:L,sel0)
+   selData=t0[sel0,-c(3,4)]
+   rownames(selData)=NULL
+   return(list(select=sel0,exclude=excludes,selectData=selData))
+ }   
+ 
