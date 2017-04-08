@@ -1,1 +1,63 @@
 
+
+# 自 定义目标函数C
+ C <- function(s){
+   1/(s*sin(s)+12)
+ }
+
+# 初始值 
+stmp <-NULL
+for  ( i in 1:100)   stmp <- c(stmp,runif(1,0,12.55))
+t0 <- var(C(stmp)) # 设定初始温度 
+s0 <- runif(1,0,12.55) #设定初始解状态
+ iters <- 3000 
+ ccnt <- 200
+ hisbest <- 12.55 # 保存历史最好状态 ，默认取 上边界 
+  ccnVc <- NULL
+  
+  for(t in 1:iters)
+  {
+    #在s0附近，产生新解,但有能包含定义内的所有值  
+     s1 <- rnorm(1,mean=s0,sd=2)
+     while(s1<0 ||  s1>12.55){
+        s1 <- rnorm(1,mean = s0,sd=3)
+     }
+     # 计算能量增量 
+      delta_t <- C(s1)-C(s0)
+      if(delta_t<0){
+        s0 <- s1
+        ccnVc <- c(ccnVc,1)
+        
+      } else { 
+        p=exp(-(delta_t/t0))
+        if(runif(1,0,1) <p)
+        {
+          s0 <- s1
+          ccnVc <- c(ccnVc,1) 
+        } else {
+          ccnVc <- c(ccnVc,0)
+        }}
+      
+      hisbest <- ifelse(C(s1) <C(hisbest),s1,hisbest)
+      hisbest <- ifelse(C(s0) <C(hisbest),s0,hisbest)
+      #更新温度更新温度问
+      t0 <- t0/log(1+t)
+  
+  #检查终止条件
+  
+  
+  
+   if(NROW(ccnVc)>ccnt && sum(ccnVc[(NROW(ccnVc)-ccnt+1):NROW(ccnVc)])==0)
+   {
+     print(paste("连续",ccnt," 次没有接受新新值， 算法终止!   "))
+break;
+        }
+  
+  
+  
+      
+  }
+ 
+ #输出最后的最优解
+ >print(hisbest)
+[1] 7.972793
